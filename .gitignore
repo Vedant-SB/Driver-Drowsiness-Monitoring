@@ -1,0 +1,42 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# IDE settings
+.vscode/
+.idea/
+
+# Environment variables and secrets
+.env
+.env.*
+
+# Debug images
+debug_*.jpg
+debug_*.jpeg
+debug_*.png
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Datasets
+dataset/
+datasets/
+
+# Training outputs
+runs/
+logs/
+checkpoints/
