@@ -13,12 +13,32 @@ class YawnDetector:
 
         # Temporal confirmation
         self.prediction_history = deque(maxlen=5)
+        self.yawn_start_time = None
+        self.yawn_active = False
+        self.mouth_closed_start_time = None
+
+        # CNN + MAR detection thresholds
+        self.YAWN_THRESHOLD = 0.50
+        self.LOW_CONFIDENCE_THRESHOLD = 0.25
+
+        self.MAR_THRESHOLD = 1.15
+        self.HIGH_MAR_THRESHOLD = 1.35
+        self.MAR_RELEASE_THRESHOLD = 1.0
+
+        # Temporal thresholds
+        self.YAWN_CONFIRMATION_TIME = 0.6
+        self.MOUTH_CLOSED_DURATION = 0.5
+
+    # Reset temporal detection state
+    def reset(self):
+
+        self.prediction_history.clear()
 
         self.yawn_start_time = None
-        self.YAWN_CONFIRMATION_TIME = 0.5
+        self.yawn_active = False
+        self.mouth_closed_start_time = None
 
-        self.YAWN_THRESHOLD = 0.65
-
+    # Extract face region
     def extract_face(self, frame, landmarks):
 
         height, width = frame.shape[:2]
@@ -50,6 +70,7 @@ class YawnDetector:
 
         return face_crop
 
+    # Calculate Mouth Aspect Ratio
     def calculate_mar(self, landmarks):
 
         upper_lower_pairs = [
@@ -86,6 +107,7 @@ class YawnDetector:
 
         return float(mar)
 
+    # CNN prediction
     def predict(self, face_image):
 
         resized = cv2.resize(face_image, (224, 224))
@@ -105,64 +127,115 @@ class YawnDetector:
 
         return prediction
 
+    # Hybrid CNN + MAR decision
+    def detect_yawn(self, yawn_probability, mar):
+
+        strong_detection = (
+            yawn_probability >= self.YAWN_THRESHOLD
+            and mar >= self.MAR_THRESHOLD
+        )
+
+        tolerant_detection = (
+            yawn_probability >= self.LOW_CONFIDENCE_THRESHOLD
+            and mar >= self.HIGH_MAR_THRESHOLD
+        )
+
+        return strong_detection or tolerant_detection
+
+    # Main yawn detection pipeline
     def process(self, frame, landmarks):
 
         face_crop = self.extract_face(frame, landmarks)
 
         if face_crop is None:
-
-            self.prediction_history.clear()
-            self.yawn_start_time = None
-
+            self.reset()
             return None
 
+        # Calculate MAR
+        mar = self.calculate_mar(landmarks)
+
+        # CNN prediction
         yawn_probability = self.predict(face_crop)
 
-        # Frame-based voting
-        is_yawn = (
-            yawn_probability >= self.YAWN_THRESHOLD
-        )
-
-        self.prediction_history.append(is_yawn)
-
-        positive_predictions = sum(
-            self.prediction_history
-        )
-
-        confirmed_by_voting = (
-            len(self.prediction_history) == 5
-            and positive_predictions >= 3
+        # Hybrid CNN + MAR detection
+        is_yawn = self.detect_yawn(
+            yawn_probability,
+            mar
         )
 
         current_time = time.monotonic()
 
-        # Sustained yawn confirmation
-        if confirmed_by_voting:
+        # ---------------------------------
+        # YAWN CONFIRMATION
+        # ---------------------------------
 
-            if self.yawn_start_time is None:
-                self.yawn_start_time = current_time
+        if not self.yawn_active:
 
-            elapsed_time = (
-                current_time - self.yawn_start_time
+            self.prediction_history.append(is_yawn)
+
+            positive_predictions = sum(
+                self.prediction_history
             )
 
-            confirmed_yawn = (
-                elapsed_time >= self.YAWN_CONFIRMATION_TIME
+            confirmed_by_voting = (
+                len(self.prediction_history) == 5
+                and positive_predictions >= 3
             )
+
+            if confirmed_by_voting:
+
+                if self.yawn_start_time is None:
+                    self.yawn_start_time = current_time
+
+                elapsed_time = (
+                    current_time - self.yawn_start_time
+                )
+
+                if elapsed_time >= self.YAWN_CONFIRMATION_TIME:
+
+                    self.yawn_active = True
+                    self.mouth_closed_start_time = None
+
+            else:
+
+                self.yawn_start_time = None
+
+        # ---------------------------------
+        # YAWN RELEASE
+        # ---------------------------------
 
         else:
 
-            self.yawn_start_time = None
-            confirmed_yawn = False
+            if mar < self.MAR_RELEASE_THRESHOLD:
 
-        mar = self.calculate_mar(landmarks)
+                if self.mouth_closed_start_time is None:
+                    self.mouth_closed_start_time = current_time
+
+                elif (
+                    current_time - self.mouth_closed_start_time
+                    >= self.MOUTH_CLOSED_DURATION
+                ):
+
+                    self.yawn_active = False
+                    self.yawn_start_time = None
+                    self.mouth_closed_start_time = None
+
+                    self.prediction_history.clear()
+
+            else:
+
+                self.mouth_closed_start_time = None
+
+        # ---------------------------------
+        # RESULT
+        # ---------------------------------
 
         return {
-            "state": "Yawn" if confirmed_yawn else "No Yawn",
+            "state": "Yawn" if self.yawn_active else "No Yawn",
 
             "confidence": (
                 yawn_probability
-                if yawn_probability >= self.YAWN_THRESHOLD
+                if yawn_probability >= 0.5
                 else 1 - yawn_probability
             ),
 
@@ -170,5 +243,5 @@ class YawnDetector:
 
             "mar": mar,
 
-            "confirmed": confirmed_yawn
+            "confirmed": self.yawn_active
         }

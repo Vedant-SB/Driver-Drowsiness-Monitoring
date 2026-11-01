@@ -4,24 +4,25 @@ import time
 
 
 # MediaPipe Face Landmarker landmark indices
+# Only stable facial landmarks are used.
 POSE_LANDMARK_IDX = {
+    "forehead": 10,
     "nose_tip": 1,
-    "chin": 152,
-    "left_eye_corner": 263,
-    "right_eye_corner": 33,
-    "left_mouth_corner": 291,
-    "right_mouth_corner": 61,
+    "right_eye_outer": 33,
+    "right_eye_inner": 133,
+    "left_eye_inner": 362,
+    "left_eye_outer": 263,
 }
 
 
-# Corresponding 3D facial reference points
+# Corresponding approximate 3D facial reference points
 MODEL_POINTS_3D = np.array([
-    (0.0, 0.0, 0.0),          # Nose tip
-    (0.0, -330.0, -65.0),     # Chin
-    (-225.0, 170.0, -135.0),  # Left eye corner
-    (225.0, 170.0, -135.0),   # Right eye corner
-    (-150.0, -150.0, -125.0), # Left mouth corner
-    (150.0, -150.0, -125.0),  # Right mouth corner
+    (0.0, 330.0, -65.0),       # Forehead
+    (0.0, 0.0, 0.0),           # Nose tip
+    (225.0, 170.0, -135.0),    # Right eye outer
+    (75.0, 170.0, -135.0),     # Right eye inner
+    (-75.0, 170.0, -135.0),    # Left eye inner
+    (-225.0, 170.0, -135.0),   # Left eye outer
 ], dtype=np.float64)
 
 
@@ -36,6 +37,7 @@ DISTRACTION_DURATION = 2.5
 class DistractionDetector:
 
     def __init__(self):
+
         self.distraction_start_time = None
 
     def estimate_head_pose(self, frame, landmarks):
@@ -50,6 +52,7 @@ class DistractionDetector:
         image_points = []
 
         for index in POSE_LANDMARK_IDX.values():
+
             landmark = landmarks[index]
 
             x = landmark.x * width
@@ -100,6 +103,7 @@ class DistractionDetector:
         singular = sy < 1e-6
 
         if not singular:
+
             pitch = np.arctan2(
                 rotation_matrix[2, 1],
                 rotation_matrix[2, 2]
@@ -116,6 +120,7 @@ class DistractionDetector:
             )
 
         else:
+
             pitch = np.arctan2(
                 -rotation_matrix[1, 2],
                 rotation_matrix[1, 1]
@@ -169,6 +174,7 @@ class DistractionDetector:
             )
 
         else:
+
             self.distraction_start_time = None
             elapsed_time = 0.0
 
@@ -199,4 +205,5 @@ class DistractionDetector:
         }
 
     def reset(self):
+
         self.distraction_start_time = None

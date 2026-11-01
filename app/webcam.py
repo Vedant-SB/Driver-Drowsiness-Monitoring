@@ -5,6 +5,7 @@ from app.face_detector import FaceDetector
 from app.eye_monitor import EyeMonitor
 from app.yawn_detector import YawnDetector
 from app.distraction_detector import DistractionDetector
+from app.alert_manager import AlertManager
 
 
 def start_webcam(eye_model, yawn_model):
@@ -14,6 +15,7 @@ def start_webcam(eye_model, yawn_model):
     eye_monitor = EyeMonitor(eye_model)
     yawn_detector = YawnDetector(yawn_model)
     distraction_detector = DistractionDetector()
+    alert_manager = AlertManager()
 
     # Initialize webcam
     camera = cv2.VideoCapture(0, cv2.CAP_DSHOW)
@@ -21,13 +23,6 @@ def start_webcam(eye_model, yawn_model):
     camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-    print(
-    "Actual Camera Resolution:",
-    camera.get(cv2.CAP_PROP_FRAME_WIDTH),
-    "x",
-    camera.get(cv2.CAP_PROP_FRAME_HEIGHT)
-)
 
     print(
         "Actual Camera Resolution:",
@@ -39,10 +34,12 @@ def start_webcam(eye_model, yawn_model):
     if not camera.isOpened():
         print("Error: Could not access webcam.")
         face_detector.close()
+        alert_manager.close()
         camera.release()
         return
 
     print("Driver Monitoring System Started")
+    print("Press R to reset all monitoring values.")
     print("Press Q to exit.")
 
     start_time = time.monotonic()
@@ -52,13 +49,18 @@ def start_webcam(eye_model, yawn_model):
     yawn_result = None
     YAWN_INFERENCE_INTERVAL = 5
 
-    try:
+    # Current detection states
+    drowsiness_alert_state = False
+    yawn_alert_state = False
+    distraction_alert_state = False
 
+    try:
         while True:
 
             success, frame = camera.read()
 
             if not success:
+                print("Error: Could not read frame from webcam.")
                 break
 
             # Mirror webcam frame
@@ -85,15 +87,19 @@ def start_webcam(eye_model, yawn_model):
 
                 if eye_result:
 
+                    drowsiness_alert_state = (
+                        eye_result["drowsiness_alert"]
+                    )
+
                     status = (
                         "DROWSINESS ALERT!"
-                        if eye_result["drowsiness_alert"]
+                        if drowsiness_alert_state
                         else "Normal"
                     )
 
                     color = (
                         (0, 0, 255)
-                        if eye_result["drowsiness_alert"]
+                        if drowsiness_alert_state
                         else (0, 255, 0)
                     )
 
@@ -147,6 +153,8 @@ def start_webcam(eye_model, yawn_model):
 
                 else:
 
+                    drowsiness_alert_state = False
+
                     cv2.putText(
                         frame,
                         "Eye detection unavailable",
@@ -162,10 +170,7 @@ def start_webcam(eye_model, yawn_model):
                 yawn_frame_count += 1
 
                 # Run yawn model every 5 frames
-                if (
-                    yawn_frame_count
-                    % YAWN_INFERENCE_INTERVAL == 0
-                ):
+                if yawn_frame_count % YAWN_INFERENCE_INTERVAL == 0:
 
                     yawn_result = yawn_detector.process(
                         frame, landmarks
@@ -176,9 +181,14 @@ def start_webcam(eye_model, yawn_model):
 
                     yawn_status = yawn_result["state"]
 
+                    yawn_alert_state = (
+                        yawn_status == "Yawn"
+                        and yawn_result["confirmed"]
+                    )
+
                     yawn_color = (
                         (0, 0, 255)
-                        if yawn_status == "Yawn"
+                        if yawn_alert_state
                         else (0, 255, 0)
                     )
 
@@ -207,6 +217,9 @@ def start_webcam(eye_model, yawn_model):
                         0.6, (255, 255, 255), 2
                     )
 
+                else:
+                    yawn_alert_state = False
+
                 # -----------------------------
                 # Distraction Detection
                 # -----------------------------
@@ -221,17 +234,19 @@ def start_webcam(eye_model, yawn_model):
                     pitch = distraction_result["pitch"]
                     roll = distraction_result["roll"]
 
-                    distraction_alert = distraction_result["alert"]
+                    distraction_alert_state = (
+                        distraction_result["alert"]
+                    )
 
                     distraction_status = (
                         "DISTRACTION ALERT!"
-                        if distraction_alert
+                        if distraction_alert_state
                         else distraction_result["direction"]
                     )
 
                     distraction_color = (
                         (0, 0, 255)
-                        if distraction_alert
+                        if distraction_alert_state
                         else (0, 255, 0)
                     )
 
@@ -276,16 +291,67 @@ def start_webcam(eye_model, yawn_model):
                         0.6, (255, 255, 255), 2
                     )
 
+                else:
+                    distraction_alert_state = False
+
+                # -----------------------------
+                # CENTRAL ALERT MANAGER
+                # -----------------------------
+
+                alert_result = alert_manager.update(
+                    drowsiness_alert=drowsiness_alert_state,
+                    yawn_alert=yawn_alert_state,
+                    distraction_alert=distraction_alert_state
+                )
+
+                # Display fatigue event counts
+                cv2.putText(
+                    frame,
+                    f"Yawns (90s): {alert_result['yawn_count']}",
+                    (20, 590),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6, (255, 255, 255), 2
+                )
+
+                cv2.putText(
+                    frame,
+                    f"Drowsiness Episodes (90s): "
+                    f"{alert_result['drowsiness_count']}",
+                    (20, 625),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6, (255, 255, 255), 2
+                )
+
+                # Combined fatigue warning
+                if alert_result["fatigue_alert"]:
+
+                    cv2.putText(
+                        frame,
+                        "FATIGUE WARNING!",
+                        (20, 680),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1.0, (0, 0, 255), 3
+                    )
+
             else:
 
                 # Reset detection states when face disappears
                 yawn_result = None
                 yawn_frame_count = 0
 
-                yawn_detector.prediction_history.clear()
-                yawn_detector.yawn_start_time = None
+                drowsiness_alert_state = False
+                yawn_alert_state = False
+                distraction_alert_state = False
 
+                eye_monitor.reset()
+                yawn_detector.reset()
                 distraction_detector.reset()
+
+                # Reset active states, but preserve recent event history
+                alert_manager.reset_active_states()
+
+                # Update manager so expired events are removed
+                alert_result = alert_manager.update()
 
                 cv2.putText(
                     frame,
@@ -301,13 +367,31 @@ def start_webcam(eye_model, yawn_model):
                 frame
             )
 
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            key = cv2.waitKey(1) & 0xFF
+
+            if key == ord('r'):
+
+                eye_monitor.reset()
+                yawn_detector.reset()
+                distraction_detector.reset()
+
+                yawn_result = None
+                yawn_frame_count = 0
+
+                drowsiness_alert_state = False
+                yawn_alert_state = False
+                distraction_alert_state = False
+
+                alert_manager.reset_all()
+
+            elif key == ord('q'):
                 break
 
     finally:
 
         camera.release()
         face_detector.close()
+        alert_manager.close()
         cv2.destroyAllWindows()
 
         print("Driver Monitoring System Stopped")
