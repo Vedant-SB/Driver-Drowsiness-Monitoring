@@ -4,6 +4,7 @@ import time
 from app.face_detector import FaceDetector
 from app.eye_monitor import EyeMonitor
 from app.yawn_detector import YawnDetector
+from app.distraction_detector import DistractionDetector
 
 
 def start_webcam(eye_model, yawn_model):
@@ -12,6 +13,7 @@ def start_webcam(eye_model, yawn_model):
     face_detector = FaceDetector()
     eye_monitor = EyeMonitor(eye_model)
     yawn_detector = YawnDetector(yawn_model)
+    distraction_detector = DistractionDetector()
 
     # Initialize webcam
     camera = cv2.VideoCapture(0, cv2.CAP_DSHOW)
@@ -19,6 +21,13 @@ def start_webcam(eye_model, yawn_model):
     camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+    print(
+    "Actual Camera Resolution:",
+    camera.get(cv2.CAP_PROP_FRAME_WIDTH),
+    "x",
+    camera.get(cv2.CAP_PROP_FRAME_HEIGHT)
+)
 
     print(
         "Actual Camera Resolution:",
@@ -198,14 +207,85 @@ def start_webcam(eye_model, yawn_model):
                         0.6, (255, 255, 255), 2
                     )
 
+                # -----------------------------
+                # Distraction Detection
+                # -----------------------------
+
+                distraction_result = distraction_detector.process(
+                    frame, landmarks
+                )
+
+                if distraction_result:
+
+                    yaw = distraction_result["yaw"]
+                    pitch = distraction_result["pitch"]
+                    roll = distraction_result["roll"]
+
+                    distraction_alert = distraction_result["alert"]
+
+                    distraction_status = (
+                        "DISTRACTION ALERT!"
+                        if distraction_alert
+                        else distraction_result["direction"]
+                    )
+
+                    distraction_color = (
+                        (0, 0, 255)
+                        if distraction_alert
+                        else (0, 255, 0)
+                    )
+
+                    cv2.putText(
+                        frame,
+                        f"Yaw: {yaw:.1f} deg",
+                        (20, 385),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6, (255, 255, 255), 2
+                    )
+
+                    cv2.putText(
+                        frame,
+                        f"Pitch: {pitch:.1f} deg",
+                        (20, 420),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6, (255, 255, 255), 2
+                    )
+
+                    cv2.putText(
+                        frame,
+                        f"Roll: {roll:.1f} deg",
+                        (20, 455),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6, (255, 255, 255), 2
+                    )
+
+                    cv2.putText(
+                        frame,
+                        distraction_status,
+                        (20, 500),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.8, distraction_color, 2
+                    )
+
+                    cv2.putText(
+                        frame,
+                        f"Distraction Duration: "
+                        f"{distraction_result['elapsed_time']:.1f}s",
+                        (20, 535),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6, (255, 255, 255), 2
+                    )
+
             else:
 
-                # Reset yawn detection when face disappears
+                # Reset detection states when face disappears
                 yawn_result = None
                 yawn_frame_count = 0
 
                 yawn_detector.prediction_history.clear()
                 yawn_detector.yawn_start_time = None
+
+                distraction_detector.reset()
 
                 cv2.putText(
                     frame,

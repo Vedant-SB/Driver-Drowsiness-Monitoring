@@ -72,6 +72,8 @@ class EyeMonitor:
         if crop.size == 0:
             return None
 
+        print("Eye crop dimensions:", crop.shape[1], "x", crop.shape[0])
+
         return cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
 
     def predict_eye(self, eye_image):
